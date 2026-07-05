@@ -1,6 +1,6 @@
 # ImportSourceConfig Reference
 
-`ImportSourceConfig` is the settings asset for one import job. It stores the data source, target asset, selected pipeline components, backup/execution policy, and internal state for incremental skip.
+`ImportSourceConfig` is the settings asset for one import job. It stores the raw text source, target asset, selected pipeline components, backup/execution policy, and internal state for incremental skip.
 
 Create it through the menu:
 
@@ -16,15 +16,21 @@ Usually a developer assigns `targetAsset`, source provider, and source-specific 
 
 Stored in code as private `[SerializeReference] IImportSourceProvider sourceProvider`. Shown in the inspector as `Source Data`.
 
-The provider is responsible only for reading raw source data. Built-in option:
+The provider is responsible only for reading raw source text. It does not decide whether the content is JSON, CSV, or another text format. `IImportSourceProvider.ReadAsync(...)` returns `ImportSourceData`; the pipeline consumes `ImportSourceData.RawContent` as a `string`, and parsing is handled later by `selectedParserId`.
+
+Built-in options:
 
 ```text
 Text Asset
+File Path
+HTTP
 ```
 
-For this provider, assign a JSON `TextAsset`. If provider is not assigned, the job finishes as invalid source provider. If `Text Asset` is selected but the TextAsset itself is empty, the job finishes as missing source.
+For `Text Asset`, assign a text `TextAsset` containing the raw import payload. The file can contain JSON, CSV, or any other format for which a compatible parser exists. If provider is not assigned, the job finishes as invalid source provider. If `Text Asset` is selected but the TextAsset reference itself is missing, the job finishes as missing source.
 
-If data does not come from a Unity `TextAsset`, use a custom `IImportSourceProvider`: HTTP, Google Sheets, external file, generated content, etc.
+For `File Path`, assign a path to a text file outside or inside the Unity project. For `HTTP`, assign a URL and optional request settings.
+
+If data does not come from a built-in source, use a custom `IImportSourceProvider`: Google Sheets, an internal API, generated content, decrypted content, etc. The provider only needs to return raw text in `ImportSourceData.RawContent`; source-specific metadata such as `SourceDescriptor` and `FingerprintSha256` can be filled for diagnostics and incremental state.
 
 ### `targetAsset`
 
@@ -34,7 +40,7 @@ The assigned target asset affects:
 
 - list of compatible import profiles;
 - auto adapter shape: collection, document, or direct fields;
-- auto JSON parser id;
+- auto parser id;
 - compatible validators/diff/fingerprint builders;
 - backup capture and restore.
 
@@ -61,7 +67,7 @@ These fields define which pipeline components are used after source data is read
 
 ### `selectedParserId`
 
-Id of the parser that turns raw source text into entries of the required `EntryType`.
+Id of the parser that turns raw source text from `ImportSourceData.RawContent` into entries of the required `EntryType`.
 
 If the field is empty, the resolver first tries the auto parser for the target. For an auto document target, this is:
 
@@ -71,9 +77,23 @@ auto_json::<targetTypeId>
 
 If auto parser is impossible and `selectedParserId` is empty, the job fails: parser is not selected and no auto parser was found.
 
+CSV is handled as a parser choice over the same raw text source model. A `.csv` `TextAsset` or `File Path` source can use the auto CSV parser:
+
+```text
+auto_csv::<targetTypeId>
+```
+
+For example:
+
+```text
+auto_csv::plain_items_database
+```
+
+Auto-fill can prefer the auto CSV parser when the configured source points to a `.csv` file. For HTTP, Google Sheets, generated content, or any custom source provider that returns CSV text without a file path, select the auto CSV parser explicitly or provide a custom parser.
+
 Fill the field explicitly when:
 
-- JSON/source shape does not fit the auto JSON parser;
+- JSON or CSV/source shape does not fit the auto parser;
 - a custom parser exists;
 - a specific parser needs to be fixed even when an auto candidate exists.
 
